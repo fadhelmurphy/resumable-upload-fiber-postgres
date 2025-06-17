@@ -17,6 +17,7 @@ Sebuah project **Resumable File Upload** menggunakan:
 - Rate limit (Redis-based limiter)  
 - Auto clean unfinished uploads  
 - Check file status endpoint  
+- Abort file upload endpoint  
 - Network-aware upload (pause saat offline dan melanjutkan saat online)
 
 ---

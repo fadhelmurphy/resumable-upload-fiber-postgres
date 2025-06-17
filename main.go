@@ -41,15 +41,14 @@ func main() {
 		log.Println("Waiting for Redis to be ready...")
 		time.Sleep(1 * time.Second)
 	}
-
-	app.Use(limiter.New(limiter.Config{
+	goLimiter := limiter.New(limiter.Config{
 		Max:        100,
 		Expiration: 1 * time.Minute,
 		LimitReached: func(c *fiber.Ctx) error {
 			return c.Status(fiber.StatusTooManyRequests).SendString("Rate limit exceeded")
 		},
 		Storage: store,
-	}))
+	})
 
 	app.Static("/", "./static")
 
@@ -57,7 +56,11 @@ func main() {
 		return handler.UploadChunk(c, db)
 	})
 
-	app.Get("/status", func(c *fiber.Ctx) error {
+	app.Delete("/upload", func(c *fiber.Ctx) error {
+    return handler.AbortUpload(c, db)
+	})
+
+	app.Get("/status", goLimiter, func(c *fiber.Ctx) error {
 		return handler.CheckStatus(c, db)
 	})
 

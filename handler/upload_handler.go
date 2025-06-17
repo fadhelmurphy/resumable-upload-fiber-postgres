@@ -14,6 +14,41 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
+func AbortUpload(c *fiber.Ctx, db *sql.DB) error {
+	filename := c.Query("filename")
+	if filename == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "missing filename",
+		})
+	}
+
+	uploadDir := "uploads"
+	filePath := filepath.Join(uploadDir, filename)
+
+	// Hapus file
+	if err := os.Remove(filePath); err != nil {
+		if !os.IsNotExist(err) {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "failed to delete file: " + err.Error(),
+			})
+		}
+		// kalau file tidak ada, ya lanjut aja
+	}
+
+	// Hapus DB record
+	_, err := db.Exec(`DELETE FROM uploads WHERE filename = $1`, filename)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "failed to delete db record: " + err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Upload aborted and cleaned up",
+	})
+}
+
+
 func UploadChunk(c *fiber.Ctx, db *sql.DB) error {
 	filename := c.Get("Upload-File-Name")
 	offset, _ := strconv.ParseInt(c.Get("Upload-Offset"), 10, 64)

@@ -7,109 +7,135 @@
 </head>
 <body>
   <h1>resumable file upload</h1>
-  <p>pake Golang + Vanilla Japasekrip</h1>
-  <br/>
+  <p>pake Golang + Vanilla Japasekrip</p>
   <br/>
   <input type="file" id="fileInput" />
-  <br/>
-  <br/>
-<progress id="progress" value="0" max="100"></progress>
-<div id="status"></div>
+  <button id="abortBtn" disabled>Abort Upload</button>
+  <br/><br/>
+  <progress id="progress" value="0" max="100"></progress>
+  <div id="status"></div>
 
-<script>
-const fileInput = document.getElementById("fileInput");
-const progress = document.getElementById("progress");
-const status = document.getElementById("status");
-let file = null;
-let offset = 0;
-let isUploading = false;
-const chunkSize = 128 * 1024; // 128KB 
-fileInput.addEventListener("change", async () => {
-  file = fileInput.files[0];
-  offset = 0;
-  await startUpload();
-});
+  <script>
+  const fileInput = document.getElementById("fileInput");
+  const abortBtn = document.getElementById("abortBtn");
+  const progress = document.getElementById("progress");
+  const status = document.getElementById("status");
 
-window.addEventListener("online", () => {
-  status.innerText = "Connection restored. Resuming upload...";
-  if (!isUploading && file) startUpload();
-});
+  let file = null;
+  let offset = 0;
+  let isUploading = false;
+  let aborted = false;
+  const chunkSize = 128 * 1024; // 128KB 
 
-window.addEventListener("offline", () => {
-  status.innerText = "You are offline. Upload paused.";
-});
-
-async function startUpload() {
-  isUploading = true;
-
-  const res = await fetch(`/status?filename=${encodeURIComponent(file.name)}`);
-  if (res.ok) {
-    const data = await res.json();
-    offset = data.size;
-  }
-
-  while (offset < file.size) {
-    if (!navigator.onLine) {
-      isUploading = false;
-      return;
-    }
-
-    const chunk = file.slice(offset, offset + chunkSize);
-    try {
-      const uploadedData = await uploadChunkXHR(chunk, offset, file);
-      offset = uploadedData.uploaded;
-    } catch (err) {
-      status.innerText = `Error: ${err.message}`;
-      isUploading = false;
-      return;
-    }
-  }
-
-  status.innerText = "Upload complete!";
-  progress.value = 100;
-  alert("Upload complete!");
-  isUploading = false;
-}
-
-function uploadChunkXHR(chunk, offset, file) {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/upload");
-    xhr.setRequestHeader("Upload-File-Name", file.name);
-    xhr.setRequestHeader("Upload-Offset", offset);
-    xhr.setRequestHeader("Upload-Total-Size", file.size);
-
-    xhr.upload.onprogress = function(e) {
-      if (e.lengthComputable) {
-        const totalUploaded = offset + e.loaded;
-        const percent = (totalUploaded / file.size) * 100;
-        progress.value = percent;
-        status.innerText = `Uploading... ${percent.toFixed(2)}%`;
-      }
-    };
-
-    xhr.onload = function() {
-      if (xhr.status === 200) {
-        try {
-          resolve(JSON.parse(xhr.responseText));
-        } catch (e) {
-          reject(new Error("Invalid JSON response"));
-        }
-      } else {
-        reject(new Error(`Upload failed: ${xhr.status}`));
-      }
-    };
-
-    xhr.onerror = function() {
-      reject(new Error("Network error"));
-    };
-
-    const formData = new FormData();
-    formData.append("file", chunk, file.name);
-    xhr.send(formData);
+  fileInput.addEventListener("change", async () => {
+    file = fileInput.files[0];
+    offset = 0;
+    aborted = false;
+    abortBtn.disabled = false;
+    await startUpload();
   });
-}
-</script>
 
+  abortBtn.addEventListener("click", async () => {
+    aborted = true;
+    abortBtn.disabled = true;
+    isUploading = false;
+    status.innerText = "Upload aborted. Cleaning up...";
+
+    const res = await fetch(`/upload?filename=${encodeURIComponent(file.name)}`, {
+      method: "DELETE"
+    });
+
+    if (res.ok) {
+      status.innerText = "Upload aborted and cleaned up!";
+      progress.value = 0;
+    } else {
+      status.innerText = `Abort failed: ${res.statusText}`;
+    }
+  });
+
+  window.addEventListener("online", () => {
+    status.innerText = "Connection restored. Resuming upload...";
+    if (!isUploading && file && !aborted) startUpload();
+  });
+
+  window.addEventListener("offline", () => {
+    status.innerText = "You are offline. Upload paused.";
+  });
+
+  async function startUpload() {
+    isUploading = true;
+
+    const res = await fetch(`/status?filename=${encodeURIComponent(file.name)}`);
+    if (res.ok) {
+      const data = await res.json();
+      offset = data.size;
+    }
+
+    while (offset < file.size) {
+      if (!navigator.onLine || aborted) {
+        isUploading = false;
+        return;
+      }
+
+      const chunk = file.slice(offset, offset + chunkSize);
+      try {
+        const uploadedData = await uploadChunkXHR(chunk, offset, file);
+        offset = uploadedData.uploaded;
+      } catch (err) {
+        status.innerText = `Error: ${err.message}`;
+        isUploading = false;
+        return;
+      }
+    }
+
+    if (!aborted) {
+      status.innerText = "Upload complete!";
+      progress.value = 100;
+      alert("Upload complete!");
+    }
+
+    isUploading = false;
+    abortBtn.disabled = true;
+  }
+
+  function uploadChunkXHR(chunk, offset, file) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/upload");
+      xhr.setRequestHeader("Upload-File-Name", file.name);
+      xhr.setRequestHeader("Upload-Offset", offset);
+      xhr.setRequestHeader("Upload-Total-Size", file.size);
+
+      xhr.upload.onprogress = function(e) {
+        if (e.lengthComputable) {
+          const totalUploaded = offset + e.loaded;
+          const percent = (totalUploaded / file.size) * 100;
+          progress.value = percent;
+          status.innerText = `Uploading... ${percent.toFixed(2)}%`;
+        }
+      };
+
+      xhr.onload = function() {
+        if (xhr.status >= 200 && xhr.status <= 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch (e) {
+            reject(new Error("Invalid JSON response"));
+          }
+        } else {
+          reject(new Error(`Upload failed: ${xhr.status}`));
+        }
+      };
+
+      xhr.onerror = function() {
+        reject(new Error("Network error"));
+      };
+
+      const formData = new FormData();
+      formData.append("file", chunk, file.name);
+      xhr.send(formData);
+    });
+  }
+  </script>
 </body>
 </html>
