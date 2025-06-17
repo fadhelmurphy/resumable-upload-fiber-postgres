@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>resumable file upload</title>
+</head>
+<body>
+  <h1>resumable file upload</h1>
+  <p>pake Golang + Vanilla Japasekrip</h1>
+  <br/>
+  <br/>
+  <input type="file" id="fileInput" />
+  <br/>
+  <br/>
+<progress id="progress" value="0" max="100"></progress>
+<div id="status"></div>
+
+<script>
+const fileInput = document.getElementById("fileInput");
+const progress = document.getElementById("progress");
+const status = document.getElementById("status");
+let file = null;
+let offset = 0;
+let isUploading = false;
+const chunkSize = 128 * 1024; // 128KB 
+fileInput.addEventListener("change", async () => {
+  file = fileInput.files[0];
+  offset = 0;
+  await startUpload();
+});
+
+window.addEventListener("online", () => {
+  status.innerText = "Connection restored. Resuming upload...";
+  if (!isUploading && file) startUpload();
+});
+
+window.addEventListener("offline", () => {
+  status.innerText = "You are offline. Upload paused.";
+});
+
+async function startUpload() {
+  isUploading = true;
+
+  const res = await fetch(`/status?filename=${encodeURIComponent(file.name)}`);
+  if (res.ok) {
+    const data = await res.json();
+    offset = data.size;
+  }
+
+  while (offset < file.size) {
+    if (!navigator.onLine) {
+      isUploading = false;
+      return;
+    }
+
+    const chunk = file.slice(offset, offset + chunkSize);
+    try {
+      const uploadedData = await uploadChunkXHR(chunk, offset, file);
+      offset = uploadedData.uploaded;
+    } catch (err) {
+      status.innerText = `Error: ${err.message}`;
+      isUploading = false;
+      return;
+    }
+  }
+
+  status.innerText = "Upload complete!";
+  progress.value = 100;
+  alert("Upload complete!");
+  isUploading = false;
+}
+
+function uploadChunkXHR(chunk, offset, file) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/upload");
+    xhr.setRequestHeader("Upload-File-Name", file.name);
+    xhr.setRequestHeader("Upload-Offset", offset);
+    xhr.setRequestHeader("Upload-Total-Size", file.size);
+
+    xhr.upload.onprogress = function(e) {
+      if (e.lengthComputable) {
+        const totalUploaded = offset + e.loaded;
+        const percent = (totalUploaded / file.size) * 100;
+        progress.value = percent;
+        status.innerText = `Uploading... ${percent.toFixed(2)}%`;
+      }
+    };
+
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch (e) {
+          reject(new Error("Invalid JSON response"));
+        }
+      } else {
+        reject(new Error(`Upload failed: ${xhr.status}`));
+      }
+    };
+
+    xhr.onerror = function() {
+      reject(new Error("Network error"));
+    };
+
+    const formData = new FormData();
+    formData.append("file", chunk, file.name);
+    xhr.send(formData);
+  });
+}
+</script>
+
+</body>
+</html>
