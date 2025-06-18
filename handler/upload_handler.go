@@ -25,17 +25,14 @@ func AbortUpload(c *fiber.Ctx, db *sql.DB) error {
 	uploadDir := "uploads"
 	filePath := filepath.Join(uploadDir, filename)
 
-	// Hapus file
 	if err := os.Remove(filePath); err != nil {
 		if !os.IsNotExist(err) {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": "failed to delete file: " + err.Error(),
 			})
 		}
-		// kalau file tidak ada, ya lanjut aja
 	}
 
-	// Hapus DB record
 	_, err := db.Exec(`DELETE FROM uploads WHERE filename = $1`, filename)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
